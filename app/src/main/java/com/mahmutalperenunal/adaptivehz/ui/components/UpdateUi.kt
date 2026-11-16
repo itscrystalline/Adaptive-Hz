@@ -18,28 +18,6 @@ import com.mahmutalperenunal.adaptivehz.R
 import com.mahmutalperenunal.adaptivehz.core.update.StableRelease
 
 @Composable
-fun UpdateCheckConsentDialog(
-    onEnable: () -> Unit,
-    onDecline: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDecline,
-        title = { Text(stringResource(R.string.update_consent_title)) },
-        text = { Text(stringResource(R.string.update_consent_body)) },
-        confirmButton = {
-            TextButton(onClick = onEnable) {
-                Text(stringResource(R.string.update_consent_enable))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDecline) {
-                Text(stringResource(R.string.update_consent_not_now))
-            }
-        }
-    )
-}
-
-@Composable
 fun UpdateAvailableDialog(
     release: StableRelease,
     onViewRelease: () -> Unit,

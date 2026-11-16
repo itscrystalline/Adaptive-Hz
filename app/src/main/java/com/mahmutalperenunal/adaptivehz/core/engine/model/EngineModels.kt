@@ -7,14 +7,24 @@ enum class SettingsNamespace {
     GLOBAL
 }
 
-// Represents a single integer write operation targeting an Android settings namespace.
+// Represents a single write operation targeting an Android settings namespace.
+//
+// AOSP-based skins store refresh-rate limits as floats in Settings.System
+// (peak_refresh_rate / min_refresh_rate) and express "system controlled" by
+// removing the keys entirely, hence the float and clear modes.
 data class SettingWrite(
     val namespace: SettingsNamespace,
     val key: String,
     val intValue: Int,
 
     // Human-readable representation used in logs and diagnostics.
-    val label: String = "${namespace.name.lowercase()}/$key=$intValue"
+    val label: String = "${namespace.name.lowercase()}/$key=$intValue",
+
+    // Writes the value with putFloat instead of putInt (AOSP min/peak limits).
+    val writeAsFloat: Boolean = false,
+
+    // Deletes the setting, returning the key to system control.
+    val clear: Boolean = false
 )
 
 // Represents the possible outcomes of a refresh-rate settings operation.

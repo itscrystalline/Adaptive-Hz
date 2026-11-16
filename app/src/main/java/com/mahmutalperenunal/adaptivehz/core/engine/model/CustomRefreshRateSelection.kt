@@ -7,7 +7,8 @@ internal data class CustomRateSelectionState(
     val globalMaximum: Int? = null,
     val globalAdaptiveTarget: Int? = null,
     val appMinimum: Int? = null,
-    val appMaximum: Int? = null
+    val appMaximum: Int? = null,
+    val appAdaptiveTarget: Int? = null
 )
 
 internal object CustomRateSelectionResolver {
@@ -21,7 +22,8 @@ internal object CustomRateSelectionResolver {
 
     fun high(state: CustomRateSelectionState): Int? = when {
         state.appMode == AppRefreshProfileMode.DEFAULT &&
-            state.globalMode == AdaptiveHzMode.ADAPTIVE -> state.globalAdaptiveTarget
+            state.globalMode == AdaptiveHzMode.ADAPTIVE ->
+            state.appAdaptiveTarget ?: state.globalAdaptiveTarget
         else -> null
     }
 

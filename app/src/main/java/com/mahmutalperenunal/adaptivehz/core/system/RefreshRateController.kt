@@ -1,6 +1,5 @@
 package com.mahmutalperenunal.adaptivehz.core.system
 
-import android.annotation.SuppressLint
 import android.content.Context
 import android.hardware.display.DisplayManager
 import android.os.Build
@@ -11,15 +10,22 @@ import android.view.Display
 import com.mahmutalperenunal.adaptivehz.core.engine.model.DeviceVendor
 import com.mahmutalperenunal.adaptivehz.core.engine.model.DeviceVendorDetector
 import com.mahmutalperenunal.adaptivehz.core.engine.model.RefreshRateApplyResult
+import com.mahmutalperenunal.adaptivehz.core.engine.model.RomSkin
+import com.mahmutalperenunal.adaptivehz.core.engine.model.RomSkinDetector
 import com.mahmutalperenunal.adaptivehz.core.engine.model.SettingWrite
 import com.mahmutalperenunal.adaptivehz.core.engine.model.SettingsNamespace
+import com.mahmutalperenunal.adaptivehz.core.engine.model.SystemPropertyReader
+import com.mahmutalperenunal.adaptivehz.core.engine.model.isOperationalSuccess
+import com.mahmutalperenunal.adaptivehz.core.shizuku.ShizukuRefreshRateBridge
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 // Centralizes vendor-specific refresh-rate writes, detection, verification, and diagnostics.
 object RefreshRateController {
 
     private const val TAG = "RefreshRateController"
+    private const val FLOAT_EQUALITY_TOLERANCE = 0.01f
 
     const val KEY_REFRESH_MODE = "refresh_rate_mode"
     const val KEY_XIAOMI_REFRESH_RATE = "miui_refresh_rate"
@@ -81,9 +87,10 @@ object RefreshRateController {
         val readable: Boolean
     )
 
-    // Aggregates the current vendor, selected settings path, and display diagnostics.
+    // Aggregates the current skin, selected settings path, and display diagnostics.
     data class Status(
         val vendor: DeviceVendor,
+        val skin: RomSkin,
         val selectedWritePath: String,
         val selectedValue: String,
         val displayHz: Float,
@@ -101,11 +108,9 @@ object RefreshRateController {
         val appContext = context.applicationContext
 
         val writeSucceeded = try {
-            writeInt(
+            writeSetting(
                 context = appContext,
-                namespace = write.namespace,
-                key = write.key,
-                value = write.intValue
+                write = write
             )
         } catch (t: Throwable) {
             Log.e(TAG, "Write failed with exception: ${write.label}", t)
@@ -138,30 +143,45 @@ object RefreshRateController {
         }
 
         // Read the value back when possible to verify that the provider accepted it.
-        val readBack = readInt(
+        val readBack = readRaw(
             context = appContext,
             namespace = write.namespace,
             key = write.key
         )
 
-        val result = when (readBack) {
-            write.intValue -> {
-                RefreshRateApplyResult.AppliedAndVerified(
+        val result = when {
+            write.clear -> {
+                if (readBack == null) {
+                    RefreshRateApplyResult.AppliedAndVerified(
+                        requestedWrite = write,
+                        readBackValue = write.intValue,
+                        genericOverrideApplied = genericApplied
+                    )
+                } else {
+                    RefreshRateApplyResult.VerificationMismatch(
+                        requestedWrite = write,
+                        readBackValue = readBack.toFloatOrNull()?.roundToInt(),
+                        genericOverrideApplied = genericApplied
+                    )
+                }
+            }
+            readBack == null -> {
+                RefreshRateApplyResult.WrittenButUnverified(
                     requestedWrite = write,
-                    readBackValue = readBack,
                     genericOverrideApplied = genericApplied
                 )
             }
-            null -> {
-                RefreshRateApplyResult.WrittenButUnverified(
+            matchesWrite(write, readBack) -> {
+                RefreshRateApplyResult.AppliedAndVerified(
                     requestedWrite = write,
+                    readBackValue = write.intValue,
                     genericOverrideApplied = genericApplied
                 )
             }
             else -> {
                 RefreshRateApplyResult.VerificationMismatch(
                     requestedWrite = write,
-                    readBackValue = readBack,
+                    readBackValue = readBack.toFloatOrNull()?.roundToInt(),
                     genericOverrideApplied = genericApplied
                 )
             }
@@ -179,6 +199,39 @@ object RefreshRateController {
         )
 
         return result
+    }
+
+    /**
+     * Applies a strategy's write list in order.
+     *
+     * Every write is attempted so a failing companion key cannot leave the other key
+     * unapplied; the first failure is returned for diagnostics.
+     */
+    fun applySettings(
+        context: Context,
+        writes: List<SettingWrite>,
+        policy: RefreshWritePolicy = RefreshWritePolicy.NORMAL,
+        genericRefreshRateHz: Int = writes.lastOrNull()?.intValue ?: 0
+    ): RefreshRateApplyResult {
+        if (writes.isEmpty()) return RefreshRateApplyResult.NoOperation
+
+        var firstFailure: RefreshRateApplyResult? = null
+        var lastResult: RefreshRateApplyResult = RefreshRateApplyResult.NoOperation
+
+        writes.forEach { write ->
+            val result = applySetting(
+                context = context,
+                write = write,
+                policy = policy,
+                genericRefreshRateHz = genericRefreshRateHz
+            )
+            lastResult = result
+            if (!result.isOperationalSuccess && firstFailure == null) {
+                firstFailure = result
+            }
+        }
+
+        return firstFailure ?: lastResult
     }
 
     // Resolves the Xiaomi settings profile that matches the detected HyperOS version.
@@ -229,11 +282,11 @@ object RefreshRateController {
     // Detects the HyperOS major version from vendor and build properties.
     fun detectHyperOsVersion(): HyperOsDetection {
         val candidates = listOf(
-            "ro.mi.os.version.name" to readSystemProperty("ro.mi.os.version.name"),
+            "ro.mi.os.version.name" to SystemPropertyReader.get("ro.mi.os.version.name"),
             "ro.mi.os.version.incremental" to
-                    readSystemProperty("ro.mi.os.version.incremental"),
+                    SystemPropertyReader.get("ro.mi.os.version.incremental"),
             "ro.build.version.incremental" to
-                    readSystemProperty("ro.build.version.incremental"),
+                    SystemPropertyReader.get("ro.build.version.incremental"),
             "Build.VERSION.INCREMENTAL" to Build.VERSION.INCREMENTAL,
             "Build.DISPLAY" to Build.DISPLAY
         )
@@ -279,21 +332,125 @@ object RefreshRateController {
         }
     }
 
-    // Reads hidden Android system properties through reflection when available.
-    @SuppressLint("PrivateApi")
-    private fun readSystemProperty(key: String): String? {
-        return try {
-            val clazz = Class.forName("android.os.SystemProperties")
-            val method = clazz.getMethod(
-                "get",
-                String::class.java,
-                String::class.java
+    // Writes the value described by a SettingWrite to its settings namespace.
+    private fun writeSetting(
+        context: Context,
+        write: SettingWrite
+    ): Boolean {
+        if (write.namespace == SettingsNamespace.SYSTEM) {
+            return writeSystemValue(
+                context = context,
+                key = write.key,
+                value = write.transportValue()
+            )
+        }
+
+        return when {
+            write.clear -> putString(
+                context = context,
+                namespace = write.namespace,
+                key = write.key,
+                value = null
             )
 
-            method.invoke(null, key, "") as? String
-        } catch (t: Throwable) {
-            Log.d(TAG, "Unable to read system property: $key", t)
-            null
+            write.writeAsFloat -> writeFloat(
+                context = context,
+                namespace = write.namespace,
+                key = write.key,
+                value = write.intValue.toFloat()
+            )
+
+            else -> writeInt(
+                context = context,
+                namespace = write.namespace,
+                key = write.key,
+                value = write.intValue
+            )
+        }
+    }
+
+    /**
+     * Writes a Settings.System value.
+     *
+     * Android 12+ rejects third-party mutations of non-public system keys such as
+     * `peak_refresh_rate` / `min_refresh_rate` even with WRITE_SECURE_SETTINGS; only
+     * system, shell and root may change them. The Shizuku user service runs as shell
+     * and is therefore the primary transport, with root and a direct write as fallbacks.
+     */
+    private fun writeSystemValue(
+        context: Context,
+        key: String,
+        value: String?
+    ): Boolean {
+        if (ShizukuRefreshRateBridge.write(key, value)) return true
+        if (RootManager.writeRefreshRateSetting(key, value)) return true
+
+        return runCatching {
+            Settings.System.putString(
+                context.applicationContext.contentResolver,
+                key,
+                value
+            )
+        }.onFailure {
+            Log.w(TAG, "Direct system setting write rejected: system/$key", it)
+        }.getOrDefault(false)
+    }
+
+    // Converts a write into the string form consumed by the privileged transports.
+    private fun SettingWrite.transportValue(): String? {
+        return when {
+            clear -> null
+            writeAsFloat -> intValue.toFloat().toString()
+            else -> intValue.toString()
+        }
+    }
+
+    // Reads the raw provider value so float, integer and cleared writes can be verified.
+    private fun readRaw(
+        context: Context,
+        namespace: SettingsNamespace,
+        key: String
+    ): String? {
+        val resolver = context.applicationContext.contentResolver
+
+        return runCatching {
+            when (namespace) {
+                SettingsNamespace.SECURE -> Settings.Secure.getString(resolver, key)
+                SettingsNamespace.SYSTEM -> Settings.System.getString(resolver, key)
+                SettingsNamespace.GLOBAL -> Settings.Global.getString(resolver, key)
+            }
+        }.getOrNull()
+    }
+
+    // Compares a provider value with the requested write, tolerating float formatting.
+    private fun matchesWrite(write: SettingWrite, rawValue: String): Boolean {
+        return if (write.writeAsFloat) {
+            val actual = rawValue.toFloatOrNull() ?: return false
+            abs(actual - write.intValue) <= FLOAT_EQUALITY_TOLERANCE
+        } else {
+            rawValue.toIntOrNull() == write.intValue
+        }
+    }
+
+    // Writes or deletes a raw string setting in the requested namespace.
+    private fun putString(
+        context: Context,
+        namespace: SettingsNamespace,
+        key: String,
+        value: String?
+    ): Boolean {
+        return when (namespace) {
+            SettingsNamespace.SECURE -> {
+                Settings.Secure.putString(context.contentResolver, key, value)
+            }
+
+            SettingsNamespace.SYSTEM -> {
+                Settings.System.putString(context.contentResolver, key, value)
+            }
+
+            SettingsNamespace.GLOBAL -> {
+                Settings.Global.putString(context.contentResolver, key, value)
+            }
         }
     }
 
@@ -433,6 +590,14 @@ object RefreshRateController {
         key: String,
         value: Float
     ): Boolean {
+        if (namespace == SettingsNamespace.SYSTEM) {
+            return writeSystemValue(
+                context = context,
+                key = key,
+                value = value.toString()
+            )
+        }
+
         return try {
             when (namespace) {
                 SettingsNamespace.SECURE -> {
@@ -496,17 +661,18 @@ object RefreshRateController {
         return minHz to maxHz
     }
 
-    // Builds a vendor-aware diagnostic snapshot of the current refresh-rate state.
+    // Builds a skin-aware diagnostic snapshot of the current refresh-rate state.
     fun readStatus(context: Context): Status {
         val appContext = context.applicationContext
         val vendor = DeviceVendorDetector.detect()
+        val skin = RomSkinDetector.detect()
 
         val displayHz = runCatching {
             appContext.display.refreshRate
         }.getOrDefault(0f)
 
-        return when (vendor) {
-            DeviceVendor.XIAOMI -> {
+        return when (skin) {
+            RomSkin.HYPER_OS -> {
                 val profile = resolveXiaomiProfile()
 
                 val selectedValue = readInt(
@@ -517,6 +683,7 @@ object RefreshRateController {
 
                 Status(
                     vendor = vendor,
+                    skin = skin,
                     selectedWritePath = profile.path,
                     selectedValue = selectedValue?.toString() ?: "(unavailable)",
                     displayHz = displayHz,
@@ -525,7 +692,7 @@ object RefreshRateController {
                 )
             }
 
-            DeviceVendor.SAMSUNG -> {
+            RomSkin.ONE_UI -> {
                 val value = readInt(
                     context = appContext,
                     namespace = SettingsNamespace.SECURE,
@@ -542,6 +709,7 @@ object RefreshRateController {
 
                 Status(
                     vendor = vendor,
+                    skin = skin,
                     selectedWritePath = "secure/$KEY_REFRESH_MODE",
                     selectedValue = label,
                     displayHz = displayHz,
@@ -550,11 +718,25 @@ object RefreshRateController {
                 )
             }
 
-            DeviceVendor.OTHER -> {
+            RomSkin.NOTHING_OS,
+            RomSkin.LINEAGE_OS,
+            RomSkin.AOSP -> {
+                val peak = readRaw(
+                    context = appContext,
+                    namespace = SettingsNamespace.SYSTEM,
+                    key = KEY_PEAK_REFRESH_RATE
+                )
+                val min = readRaw(
+                    context = appContext,
+                    namespace = SettingsNamespace.SYSTEM,
+                    key = KEY_MIN_REFRESH_RATE
+                )
+
                 Status(
                     vendor = vendor,
-                    selectedWritePath = "(experimental)",
-                    selectedValue = "(unknown)",
+                    skin = skin,
+                    selectedWritePath = "system/$KEY_PEAK_REFRESH_RATE + system/$KEY_MIN_REFRESH_RATE",
+                    selectedValue = "peak=${peak ?: "(unset)"}, min=${min ?: "(unset)"}",
                     displayHz = displayHz,
                     hyperOsDetection = null,
                     candidateSettings = emptyList()

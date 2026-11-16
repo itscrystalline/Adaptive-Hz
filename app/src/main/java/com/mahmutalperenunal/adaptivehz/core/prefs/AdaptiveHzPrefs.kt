@@ -54,6 +54,7 @@ object AdaptiveHzPrefs {
     private const val KEY_GLOBAL_ADAPTIVE_HIGH_RATE = "global_adaptive_high_rate"
     private const val KEY_APP_CUSTOM_MIN_RATE_PREFIX = "app_custom_min_rate_"
     private const val KEY_APP_CUSTOM_MAX_RATE_PREFIX = "app_custom_max_rate_"
+    private const val KEY_APP_ADAPTIVE_TARGET_PREFIX = "app_adaptive_target_"
     private const val LEGACY_KEY_APP_ADAPTIVE_LOW_RATE_PREFIX = "app_adaptive_low_rate_"
     private const val LEGACY_KEY_APP_ADAPTIVE_HIGH_RATE_PREFIX = "app_adaptive_high_rate_"
     private const val LEGACY_KEY_APP_CUSTOM_ADAPTIVE_PREFIX = "app_custom_adaptive_"
@@ -87,17 +88,12 @@ object AdaptiveHzPrefs {
     const val KEY_INTERACTION_DROP_DELAY_MS = "interaction_drop_delay_ms"
     const val KEY_QUICK_SETTINGS_TILE_ADDED = "quick_settings_tile_added"
     const val KEY_QUICK_ACCESS_DISCOVERY_SHOWN = "quick_access_discovery_shown"
-    const val KEY_UPDATE_CHECK_CHOICE_MADE = "update_check_choice_made"
-    const val KEY_AUTOMATIC_UPDATE_CHECKS = "automatic_update_checks"
-    const val KEY_LAST_UPDATE_CHECK_AT = "last_update_check_at"
-    const val KEY_LAST_PROMPTED_RELEASE_TAG = "last_prompted_release_tag"
     const val KEY_SUPPORT_PROMPT_SHOWN = "support_prompt_shown"
     const val KEY_SUPPORT_SESSION_COUNT = "support_session_count"
     const val KEY_SUPPORT_DISTINCT_DAY_COUNT = "support_distinct_day_count"
     const val KEY_SUPPORT_LAST_SESSION_AT = "support_last_session_at"
     const val KEY_SUPPORT_LAST_SESSION_DAY = "support_last_session_day"
     const val DEFAULT_INTERACTION_DROP_DELAY_MS = 2000L
-    const val UPDATE_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1000L
     val INTERACTION_DROP_DELAY_OPTIONS_MS = listOf(250L, 500L, 750L, 1000L, 1500L, 2000L, 2500L, 3000L, 3500L, 4000L, 4500L)
 
     private fun prefs(context: Context) =
@@ -216,45 +212,6 @@ object AdaptiveHzPrefs {
 
     fun markQuickAccessDiscoveryShown(context: Context) {
         prefs(context).edit { putBoolean(KEY_QUICK_ACCESS_DISCOVERY_SHOWN, true) }
-    }
-
-    fun hasMadeUpdateCheckChoice(context: Context): Boolean {
-        return prefs(context).getBoolean(KEY_UPDATE_CHECK_CHOICE_MADE, false)
-    }
-
-    fun isAutomaticUpdateCheckEnabled(context: Context): Boolean {
-        return prefs(context).getBoolean(KEY_AUTOMATIC_UPDATE_CHECKS, false)
-    }
-
-    fun setAutomaticUpdateChecksEnabled(context: Context, enabled: Boolean) {
-        prefs(context).edit {
-            putBoolean(KEY_UPDATE_CHECK_CHOICE_MADE, true)
-            putBoolean(KEY_AUTOMATIC_UPDATE_CHECKS, enabled)
-        }
-    }
-
-    fun shouldRunAutomaticUpdateCheck(
-        context: Context,
-        nowMillis: Long = System.currentTimeMillis()
-    ): Boolean {
-        if (!isAutomaticUpdateCheckEnabled(context)) return false
-        val lastCheck = prefs(context).getLong(KEY_LAST_UPDATE_CHECK_AT, 0L)
-        return lastCheck == 0L || nowMillis - lastCheck >= UPDATE_CHECK_INTERVAL_MS
-    }
-
-    fun markUpdateCheckAttempt(
-        context: Context,
-        atMillis: Long = System.currentTimeMillis()
-    ) {
-        prefs(context).edit { putLong(KEY_LAST_UPDATE_CHECK_AT, atMillis) }
-    }
-
-    fun wasReleaseAlreadyPrompted(context: Context, tag: String): Boolean {
-        return prefs(context).getString(KEY_LAST_PROMPTED_RELEASE_TAG, null) == tag
-    }
-
-    fun markReleasePrompted(context: Context, tag: String) {
-        prefs(context).edit { putString(KEY_LAST_PROMPTED_RELEASE_TAG, tag) }
     }
 
     /** Records a qualified session without analytics or network access. */
@@ -518,6 +475,12 @@ object AdaptiveHzPrefs {
 
     fun setAppCustomMaximumRate(context: Context, packageName: String, rate: Int?) =
         setAppOptionalPositiveInt(context, KEY_APP_CUSTOM_MAX_RATE_PREFIX, packageName, rate)
+
+    fun getAppAdaptiveTargetRate(context: Context, packageName: String?): Int? =
+        getAppOptionalPositiveInt(context, KEY_APP_ADAPTIVE_TARGET_PREFIX, packageName)
+
+    fun setAppAdaptiveTargetRate(context: Context, packageName: String, rate: Int?) =
+        setAppOptionalPositiveInt(context, KEY_APP_ADAPTIVE_TARGET_PREFIX, packageName, rate)
 
     data class OriginalRefreshRateSettings(
         val minValue: String?,

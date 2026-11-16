@@ -36,7 +36,6 @@ import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.Storefront
 import androidx.compose.material.icons.outlined.Sync
-import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material3.AlertDialog
@@ -64,8 +63,8 @@ import androidx.compose.ui.unit.dp
 import com.mahmutalperenunal.adaptivehz.BuildConfig
 import com.mahmutalperenunal.adaptivehz.R
 import com.mahmutalperenunal.adaptivehz.core.engine.AdaptiveHzRuntimeState
-import com.mahmutalperenunal.adaptivehz.core.engine.model.DeviceVendor
-import com.mahmutalperenunal.adaptivehz.core.engine.model.DeviceVendorDetector
+import com.mahmutalperenunal.adaptivehz.core.engine.model.RomSkin
+import com.mahmutalperenunal.adaptivehz.core.engine.model.RomSkinDetector
 import com.mahmutalperenunal.adaptivehz.core.prefs.AdaptiveHzPrefs
 import com.mahmutalperenunal.adaptivehz.core.prefs.AdaptiveHzPrefs.getInteractionDropDelayMs
 import com.mahmutalperenunal.adaptivehz.core.prefs.AppLanguage
@@ -148,9 +147,6 @@ fun SettingsScreen(
     val languageDialogOpen = remember { mutableStateOf(false) }
     val batterySaverOverrideDialogOpen = remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
-    var automaticUpdateChecks by remember {
-        mutableStateOf(AdaptiveHzPrefs.isAutomaticUpdateCheckEnabled(appContext))
-    }
     var updateCheckState by remember { mutableStateOf(UpdateCheckUiState.Idle) }
     var availableRelease by remember { mutableStateOf<StableRelease?>(null) }
     val shizukuAccessState = rememberShizukuAccessState()
@@ -158,7 +154,7 @@ fun SettingsScreen(
     val scrollState = rememberScrollState()
     val topBarState = rememberTopAppBarState()
 
-    val isXiaomiDevice = remember { DeviceVendorDetector.detect() == DeviceVendor.XIAOMI }
+    val isXiaomiDevice = remember { RomSkinDetector.detect() == RomSkin.HYPER_OS }
     var interactionDropDelayMs by remember { mutableLongStateOf(getInteractionDropDelayMs(appContext)) }
     var keepActiveDuringBatterySaver by remember {
         mutableStateOf(AdaptiveHzPrefs.shouldKeepActiveDuringBatterySaver(appContext))
@@ -198,17 +194,6 @@ fun SettingsScreen(
             QuickAccessOptions(modifier = Modifier.fillMaxWidth())
 
             SectionTitle(stringResource(R.string.settings_section_updates))
-            SettingsSwitchRow(
-                leading = Icons.Outlined.SystemUpdate,
-                title = stringResource(R.string.settings_item_automatic_update_checks),
-                subtitle = stringResource(R.string.settings_value_automatic_update_checks_summary),
-                checked = automaticUpdateChecks,
-                onCheckedChange = { enabled ->
-                    automaticUpdateChecks = enabled
-                    AdaptiveHzPrefs.setAutomaticUpdateChecksEnabled(appContext, enabled)
-                    updateCheckState = UpdateCheckUiState.Idle
-                }
-            )
             SettingsRow(
                 leading = Icons.Outlined.Sync,
                 title = stringResource(R.string.settings_item_check_for_updates),
@@ -225,14 +210,9 @@ fun SettingsScreen(
                     {
                         updateCheckState = UpdateCheckUiState.Checking
                         coroutineScope.launch {
-                            AdaptiveHzPrefs.markUpdateCheckAttempt(appContext)
                             when (val result = GitHubUpdateChecker.check()) {
                                 is UpdateCheckResult.Available -> {
                                     updateCheckState = UpdateCheckUiState.Idle
-                                    AdaptiveHzPrefs.markReleasePrompted(
-                                        appContext,
-                                        result.release.tagName
-                                    )
                                     availableRelease = result.release
                                 }
 

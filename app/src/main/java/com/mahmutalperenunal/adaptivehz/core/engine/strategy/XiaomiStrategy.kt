@@ -26,38 +26,42 @@ import com.mahmutalperenunal.adaptivehz.core.system.RefreshRateController
  */
 class XiaomiStrategy : VendorStrategy {
 
-    override val name: String = "Xiaomi/HyperOS"
+    override val name: String = "Xiaomi HyperOS/MIUI"
 
     // Builds the setting write that requests the lowest supported refresh rate.
-    override fun desiredLow(context: Context): SettingWrite {
+    override fun desiredLow(context: Context): List<SettingWrite> {
         val appContext = context.applicationContext
         val (minHz, _) = RefreshRateController.resolveDisplayMinMax(appContext)
         val profile = RefreshRateController.resolveXiaomiProfile()
 
-        return SettingWrite(
-            namespace = profile.namespace,
-            key = profile.settingKey,
-            intValue = minHz,
-            label = "${profile.path}=$minHz (Minimum, ${profile.label})"
+        return listOf(
+            SettingWrite(
+                namespace = profile.namespace,
+                key = profile.settingKey,
+                intValue = minHz,
+                label = "${profile.path}=$minHz (Minimum, ${profile.label})"
+            )
         )
     }
 
     // Builds the setting write that requests the highest adaptive refresh rate.
-    override fun desiredHigh(context: Context): SettingWrite {
+    override fun desiredHigh(context: Context): List<SettingWrite> {
         val appContext = context.applicationContext
         val (_, maxHz) = RefreshRateController.resolveDisplayMinMax(appContext)
         val profile = RefreshRateController.resolveXiaomiProfile()
 
-        return SettingWrite(
-            namespace = profile.namespace,
-            key = profile.settingKey,
-            intValue = maxHz,
-            label = "${profile.path}=$maxHz (Adaptive High, ${profile.label})"
+        return listOf(
+            SettingWrite(
+                namespace = profile.namespace,
+                key = profile.settingKey,
+                intValue = maxHz,
+                label = "${profile.path}=$maxHz (Adaptive High, ${profile.label})"
+            )
         )
     }
 
     // Builds the vendor-specific setting write for persistent minimum refresh rate.
-    override fun desiredForceMinimum(context: Context): SettingWrite {
+    override fun desiredForceMinimum(context: Context): List<SettingWrite> {
         val appContext = context.applicationContext
         val (minHz, _) = RefreshRateController.resolveDisplayMinMax(appContext)
         val profile = RefreshRateController.resolveXiaomiProfile()
@@ -65,16 +69,18 @@ class XiaomiStrategy : VendorStrategy {
         // HyperOS 1 requires 0 for persistent minimum while adaptive LOW keeps using Hz.
         val value = profile.resolveForceMinimumValue(minHz)
 
-        return SettingWrite(
-            namespace = profile.namespace,
-            key = profile.settingKey,
-            intValue = value,
-            label = "${profile.path}=$value (Force Minimum, ${profile.label})"
+        return listOf(
+            SettingWrite(
+                namespace = profile.namespace,
+                key = profile.settingKey,
+                intValue = value,
+                label = "${profile.path}=$value (Force Minimum, ${profile.label})"
+            )
         )
     }
 
     // Builds the vendor-specific setting write for persistent maximum refresh rate.
-    override fun desiredForceMaximum(context: Context): SettingWrite {
+    override fun desiredForceMaximum(context: Context): List<SettingWrite> {
         val appContext = context.applicationContext
         val (_, maxHz) = RefreshRateController.resolveDisplayMinMax(appContext)
         val profile = RefreshRateController.resolveXiaomiProfile()
@@ -82,23 +88,27 @@ class XiaomiStrategy : VendorStrategy {
         // Some Xiaomi profiles require a special value instead of the physical maximum Hz.
         val value = profile.resolveForceMaximumValue(maxHz)
 
-        return SettingWrite(
-            namespace = profile.namespace,
-            key = profile.settingKey,
-            intValue = value,
-            label = "${profile.path}=$value (Force Maximum, ${profile.label})"
+        return listOf(
+            SettingWrite(
+                namespace = profile.namespace,
+                key = profile.settingKey,
+                intValue = value,
+                label = "${profile.path}=$value (Force Maximum, ${profile.label})"
+            )
         )
     }
 
     // Builds the setting write that returns refresh-rate control to the system.
-    override fun desiredSystemControlled(context: Context): SettingWrite {
+    override fun desiredSystemControlled(context: Context): List<SettingWrite> {
         val profile = RefreshRateController.resolveXiaomiProfile()
 
-        return SettingWrite(
-            namespace = profile.namespace,
-            key = profile.settingKey,
-            intValue = 0,
-            label = "${profile.path}=0 (System Controlled, ${profile.label})"
+        return listOf(
+            SettingWrite(
+                namespace = profile.namespace,
+                key = profile.settingKey,
+                intValue = 0,
+                label = "${profile.path}=0 (System Controlled, ${profile.label})"
+            )
         )
     }
 

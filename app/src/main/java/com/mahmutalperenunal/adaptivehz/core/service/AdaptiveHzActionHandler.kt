@@ -71,8 +71,8 @@ object AdaptiveHzActionHandler {
         val appContext = context.applicationContext
         val strategy = VendorStrategyProvider.provide()
 
-        // Keep the existing mode-to-vendor mapping intact for the fallback path.
-        val write = when (mode) {
+        // Keep the existing mode-to-strategy mapping intact for the fallback path.
+        val writes = when (mode) {
             AdaptiveHzMode.OFF -> strategy.desiredSystemControlled(appContext)
             AdaptiveHzMode.ADAPTIVE -> strategy.desiredLow(appContext)
             AdaptiveHzMode.FORCE_MIN -> strategy.desiredForceMinimum(appContext)
@@ -107,7 +107,7 @@ object AdaptiveHzActionHandler {
         // Custom overrides must be removed before returning to a vendor strategy.
         if (!CustomRefreshRateController.restoreOriginal(appContext)) {
             Log.e(TAG, "Unable to restore original min/peak settings before legacy write")
-            return write?.let {
+            return writes.firstOrNull()?.let {
                 RefreshRateApplyResult.Failure(
                     requestedWrite = it,
                     throwable = IllegalStateException("Custom refresh-rate restore failed")
@@ -116,7 +116,7 @@ object AdaptiveHzActionHandler {
         }
 
         // Some strategies may not require a direct settings write for the selected mode.
-        if (write == null) {
+        if (writes.isEmpty()) {
             Log.d(TAG, "No setting write required. mode=$mode strategy=${strategy.name}")
             return if (customFallbackRequired && customRate != null) {
                 RefreshRateApplyResult.CustomFallbackApplied(null, customRate)
@@ -125,14 +125,15 @@ object AdaptiveHzActionHandler {
             }
         }
 
-        val result = RefreshRateController.applySetting(
+        val result = RefreshRateController.applySettings(
             context = appContext,
-            write = write
+            writes = writes
         )
 
         AdaptiveHzPrefs.updateDebugLastWrite(
             context = appContext,
-            label = "${mode.name}: ${write.label} / ${result::class.simpleName}",
+            label = "${mode.name}: ${writes.joinToString(" + ") { it.label }} / " +
+                result::class.simpleName,
             success = result.isOperationalSuccess
         )
 
@@ -142,7 +143,10 @@ object AdaptiveHzActionHandler {
         )
 
         return if (customFallbackRequired && customRate != null && result.isOperationalSuccess) {
-            RefreshRateApplyResult.CustomFallbackApplied(write, customRate)
+            RefreshRateApplyResult.CustomFallbackApplied(
+                requestedWrite = writes.lastOrNull(),
+                requestedRefreshRateHz = customRate
+            )
         } else {
             result
         }

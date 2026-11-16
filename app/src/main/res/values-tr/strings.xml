@@ -170,18 +170,12 @@
 
     <!-- Settings - items -->
     <string name="settings_item_stability_mode">Kararlılık Modu</string>
-    <string name="settings_item_automatic_update_checks">Otomatik güncelleme kontrolü</string>
-    <string name="settings_value_automatic_update_checks_summary">GitHub’daki kararlı sürümleri en fazla 24 saatte bir kontrol eder. Beta ve ön sürümler yok sayılır.</string>
     <string name="settings_item_check_for_updates">Güncellemeleri kontrol et</string>
     <string name="settings_value_stable_updates_summary">GitHub’daki en son kararlı sürümü elle kontrol edin.</string>
     <string name="update_checking">GitHub kontrol ediliyor…</string>
     <string name="update_up_to_date">En son kararlı sürümü kullanıyorsunuz.</string>
     <string name="update_check_failed">Güncellemeler kontrol edilemedi. Bağlantınızı kontrol edip tekrar deneyin.</string>
     <string name="update_invalid_release">En son sürümün geçerli bir sürüm numarası yok.</string>
-    <string name="update_consent_title">Güncel kalmak ister misiniz?</string>
-    <string name="update_consent_body">Adaptive Hz, GitHub’daki yeni kararlı sürümleri en fazla 24 saatte bir kontrol edebilir. Beta ve ön sürümler yok sayılır. Hiçbir güncelleme otomatik olarak indirilmez veya kurulmaz.</string>
-    <string name="update_consent_enable">Kontrolü etkinleştir</string>
-    <string name="update_consent_not_now">Şimdi değil</string>
     <string name="update_available_title">Güncelleme mevcut</string>
     <string name="update_available_body">%1$s kullanıma hazır. İndirmeden önce sürümü GitHub’da inceleyin.</string>
     <string name="update_view_release">Sürümü görüntüle</string>

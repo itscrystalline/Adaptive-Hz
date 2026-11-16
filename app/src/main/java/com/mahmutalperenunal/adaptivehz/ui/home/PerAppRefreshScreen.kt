@@ -554,11 +554,18 @@ fun ProfileModePickerDialog(
     var customMaximum by remember(app.packageName) {
         mutableStateOf(AdaptiveHzPrefs.getAppCustomMaximumRate(context, app.packageName))
     }
+    var customAdaptiveTarget by remember(app.packageName) {
+        mutableStateOf(AdaptiveHzPrefs.getAppAdaptiveTargetRate(context, app.packageName))
+    }
     val shizukuAccessState = rememberShizukuAccessState()
     var showShizukuRecommendation by remember(app.packageName) { mutableStateOf(false) }
 
     fun applyProfile() {
         when (selectedMode) {
+            AppRefreshProfileMode.DEFAULT ->
+                AdaptiveHzPrefs.setAppAdaptiveTargetRate(
+                    context, app.packageName, customAdaptiveTarget
+                )
             AppRefreshProfileMode.FORCE_MIN ->
                 AdaptiveHzPrefs.setAppCustomMinimumRate(
                     context, app.packageName, customMinimum
@@ -627,6 +634,18 @@ fun ProfileModePickerDialog(
                     )
                 }
 
+                if (capabilities.customRateSelectionSupported &&
+                    selectedMode == AppRefreshProfileMode.DEFAULT) {
+                    InlineRefreshRateSelector(
+                        label = stringResource(R.string.custom_adaptive_target_label),
+                        value = customAdaptiveTarget,
+                        rates = capabilities.supportedRates,
+                        enabled = capabilities.customRateSelectionSupported,
+                        onSelected = {
+                            customAdaptiveTarget = it
+                        }
+                    )
+                }
                 if (capabilities.customRateSelectionSupported &&
                     selectedMode == AppRefreshProfileMode.FORCE_MIN) {
                     InlineRefreshRateSelector(

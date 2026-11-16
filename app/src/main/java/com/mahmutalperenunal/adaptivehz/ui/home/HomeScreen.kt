@@ -54,7 +54,8 @@ import com.mahmutalperenunal.adaptivehz.core.service.AdaptiveHzActionHandler
 import com.mahmutalperenunal.adaptivehz.core.prefs.AdaptiveHzPrefs
 import com.mahmutalperenunal.adaptivehz.core.service.StabilityForegroundService
 import com.mahmutalperenunal.adaptivehz.core.engine.model.AdaptiveHzMode
-import com.mahmutalperenunal.adaptivehz.core.engine.model.DeviceVendorDetector
+import com.mahmutalperenunal.adaptivehz.core.engine.model.RomSkin
+import com.mahmutalperenunal.adaptivehz.core.engine.model.RomSkinDetector
 import com.mahmutalperenunal.adaptivehz.core.engine.model.RefreshRateApplyResult
 import com.mahmutalperenunal.adaptivehz.core.engine.model.isOperationalSuccess
 import androidx.compose.ui.res.stringResource
@@ -67,22 +68,16 @@ import com.mahmutalperenunal.adaptivehz.core.engine.AdaptiveHzRuntimeState.getAc
 import com.mahmutalperenunal.adaptivehz.core.apps.InstalledAppInfo
 import com.mahmutalperenunal.adaptivehz.core.apps.InstalledAppsRepository
 import com.mahmutalperenunal.adaptivehz.core.apps.RecentAppsProvider
-import com.mahmutalperenunal.adaptivehz.core.engine.model.DeviceVendor
 import com.mahmutalperenunal.adaptivehz.core.system.RootManager
 import com.mahmutalperenunal.adaptivehz.core.system.CustomRefreshRateController
 import com.mahmutalperenunal.adaptivehz.core.system.RefreshRateCapabilities
 import com.mahmutalperenunal.adaptivehz.core.shizuku.ShizukuAccess
 import com.mahmutalperenunal.adaptivehz.core.shizuku.ShizukuAccessState
 import com.mahmutalperenunal.adaptivehz.core.quickaccess.QuickAccessManager
-import com.mahmutalperenunal.adaptivehz.core.update.GitHubUpdateChecker
-import com.mahmutalperenunal.adaptivehz.core.update.StableRelease
-import com.mahmutalperenunal.adaptivehz.core.update.UpdateCheckResult
 import com.mahmutalperenunal.adaptivehz.ui.home.components.DashboardComponent
 import com.mahmutalperenunal.adaptivehz.ui.home.components.SetupComponent
 import com.mahmutalperenunal.adaptivehz.ui.settings.components.QuickAccessDiscoverySheet
 import com.mahmutalperenunal.adaptivehz.ui.settings.components.ProjectSupportCard
-import com.mahmutalperenunal.adaptivehz.ui.components.UpdateAvailableDialog
-import com.mahmutalperenunal.adaptivehz.ui.components.UpdateCheckConsentDialog
 import com.mahmutalperenunal.adaptivehz.ui.components.ShizukuRecommendationDialog
 import com.mahmutalperenunal.adaptivehz.ui.components.rememberShizukuAccessState
 import java.time.LocalDate
@@ -199,9 +194,10 @@ fun HomeScreen(
         mutableStateOf(AdaptiveHzRuntimeState.AccessibilityState.DISABLED)
     }
 
-    // Vendor is stable during the app session.
-    val vendorLabel = remember { DeviceVendorDetector.detect().toString() }
-    val isXiaomiDevice = remember { DeviceVendorDetector.detect() == DeviceVendor.XIAOMI }
+    // Skin is stable during the app session.
+    val skin = remember { RomSkinDetector.detect() }
+    val vendorLabel = remember { skin.displayName }
+    val isXiaomiDevice = remember { skin == RomSkin.HYPER_OS }
 
     var rootAvailable by remember { mutableStateOf(false) }
 
@@ -305,11 +301,6 @@ fun HomeScreen(
     val requiredSetupReady = accessibilityConfigured && adbGranted
     val setupComplete = requiredSetupReady && initialSetupCompleted.value
     var showQuickAccessDiscovery by remember { mutableStateOf(false) }
-    var showUpdateConsent by remember { mutableStateOf(false) }
-    var automaticUpdateChecks by remember {
-        mutableStateOf(prefs.isAutomaticUpdateCheckEnabled(appContext))
-    }
-    var availableRelease by remember { mutableStateOf<StableRelease?>(null) }
     var showProjectSupport by remember { mutableStateOf(false) }
 
     // Introduces optional features one at a time after required setup is complete.
@@ -322,32 +313,6 @@ fun HomeScreen(
                 QuickAccessManager.isQuickSettingsTileAdded(appContext) &&
                     QuickAccessManager.isWidgetAdded(appContext)
             showQuickAccessDiscovery = !quickAccessAlreadyConfigured
-            if (quickAccessAlreadyConfigured && !prefs.hasMadeUpdateCheckChoice(appContext)) {
-                showUpdateConsent = true
-            }
-        } else if (!prefs.hasMadeUpdateCheckChoice(appContext)) {
-            showUpdateConsent = true
-        }
-    }
-
-    // Network access is opt-in, rate-limited and only checks stable GitHub releases.
-    LaunchedEffect(setupComplete, automaticUpdateChecks) {
-        if (!setupComplete || !prefs.shouldRunAutomaticUpdateCheck(appContext)) {
-            return@LaunchedEffect
-        }
-
-        prefs.markUpdateCheckAttempt(appContext)
-        when (val result = GitHubUpdateChecker.check()) {
-            is UpdateCheckResult.Available -> {
-                if (!prefs.wasReleaseAlreadyPrompted(appContext, result.release.tagName)) {
-                    prefs.markReleasePrompted(appContext, result.release.tagName)
-                    availableRelease = result.release
-                }
-            }
-
-            UpdateCheckResult.UpToDate,
-            UpdateCheckResult.InvalidResponse,
-            is UpdateCheckResult.Failed -> Unit
         }
     }
 
@@ -804,37 +769,6 @@ fun HomeScreen(
     if (showQuickAccessDiscovery) {
         QuickAccessDiscoverySheet(
             onDismiss = { showQuickAccessDiscovery = false }
-        )
-    }
-
-    if (showUpdateConsent) {
-        UpdateCheckConsentDialog(
-            onEnable = {
-                prefs.setAutomaticUpdateChecksEnabled(appContext, true)
-                automaticUpdateChecks = true
-                showUpdateConsent = false
-            },
-            onDecline = {
-                prefs.setAutomaticUpdateChecksEnabled(appContext, false)
-                automaticUpdateChecks = false
-                showUpdateConsent = false
-            }
-        )
-    }
-
-    availableRelease?.let { release ->
-        UpdateAvailableDialog(
-            release = release,
-            onViewRelease = {
-                val intent = Intent(Intent.ACTION_VIEW, release.htmlUrl.toUri())
-                try {
-                    context.startActivity(intent)
-                } catch (_: ActivityNotFoundException) {
-                    Toast.makeText(context, R.string.error, Toast.LENGTH_SHORT).show()
-                }
-                availableRelease = null
-            },
-            onDismiss = { availableRelease = null }
         )
     }
 }

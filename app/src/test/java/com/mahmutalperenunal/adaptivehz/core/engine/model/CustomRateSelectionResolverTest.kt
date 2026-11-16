@@ -55,6 +55,32 @@ class CustomRateSelectionResolverTest {
     }
 
     @Test
+    fun `default app overrides the global touch target`() {
+        val state = CustomRateSelectionState(
+            globalMode = AdaptiveHzMode.ADAPTIVE,
+            appMode = AppRefreshProfileMode.DEFAULT,
+            globalAdaptiveTarget = 120,
+            appAdaptiveTarget = 90
+        )
+
+        assertEquals(90, CustomRateSelectionResolver.high(state))
+        assertNull(CustomRateSelectionResolver.low(state))
+    }
+
+    @Test
+    fun `fixed app mode ignores the per-app touch target`() {
+        val state = CustomRateSelectionState(
+            globalMode = AdaptiveHzMode.ADAPTIVE,
+            appMode = AppRefreshProfileMode.FORCE_MIN,
+            appAdaptiveTarget = 90,
+            appMinimum = 60
+        )
+
+        assertNull(CustomRateSelectionResolver.high(state))
+        assertEquals(60, CustomRateSelectionResolver.forceMinimum(state))
+    }
+
+    @Test
     fun `system controlled app never receives custom target`() {
         val state = CustomRateSelectionState(
             globalMode = AdaptiveHzMode.ADAPTIVE,

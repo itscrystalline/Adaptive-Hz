@@ -3,7 +3,9 @@ package com.mahmutalperenunal.adaptivehz.core.shizuku
 import android.os.IBinder
 import android.os.RemoteException
 import android.util.Log
+import com.mahmutalperenunal.adaptivehz.BuildConfig
 import java.io.BufferedReader
+import java.io.File
 import java.io.InputStreamReader
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -45,6 +47,41 @@ class InputMonitorUserService : IInputMonitorService.Stub() {
         releasePrivilegedDisplaySessions()
     }
 
+    init {
+        killStaleWatchers()
+    }
+
+    /**
+     * Removes user-service processes left behind by earlier app sessions.
+     *
+     * Shizuku spawns this service as shell, so it can signal sibling shell processes from
+     * the same package. Each new session therefore starts with exactly one watcher.
+     */
+    private fun killStaleWatchers() {
+        Thread({
+            val selfPid = android.os.Process.myPid()
+            val watcherPrefix = "${BuildConfig.APPLICATION_ID}:input_monitor"
+
+            File("/proc").listFiles()?.forEach { entry ->
+                val pid = entry.name.toIntOrNull() ?: return@forEach
+                if (pid == selfPid) return@forEach
+
+                val commandLine = runCatching {
+                    File(entry, "cmdline").readBytes()
+                        .toString(Charsets.UTF_8)
+                        .replace('\u0000', ' ')
+                        .trim()
+                }.getOrNull() ?: return@forEach
+
+                if (!commandLine.startsWith(watcherPrefix)) return@forEach
+
+                runCatching { android.os.Process.killProcess(pid) }
+                    .onSuccess { Log.d(TAG, "Killed stale watcher pid=$pid") }
+                    .onFailure { Log.w(TAG, "Unable to kill stale watcher pid=$pid", it) }
+            }
+        }, "stale-watcher-cleanup").start()
+    }
+
     override fun listInputDevices(): String {
         return executeDirectCommand("/system/bin/getevent", "-lp")
             .takeIf { it.success }
@@ -58,7 +95,7 @@ class InputMonitorUserService : IInputMonitorService.Stub() {
 
     override fun readRefreshRateSetting(key: String?): String {
         val safeKey = key?.takeIf(::isAllowedRefreshRateKey) ?: return ""
-        val result = executeDirectCommand("/system/bin/settings", "get", "system", safeKey)
+        val result = executeSettingsCommand("get", "system", safeKey)
         if (!result.success) return ""
 
         return result.output.trim().takeUnless { it == "null" }.orEmpty()
@@ -72,22 +109,21 @@ class InputMonitorUserService : IInputMonitorService.Stub() {
             ?.toString()
             ?: return false
 
-        val result = executeDirectCommand(
-            "/system/bin/settings",
+        // The caller verifies the value through a direct Settings read; spawning a
+        // second settings process here would double the transition latency.
+        val result = executeSettingsCommand(
             "put",
             "system",
             safeKey,
             safeValue
         )
-        if (!result.success) return false
-
-        return readRefreshRateSetting(safeKey).toFloatOrNull() == safeValue.toFloatOrNull()
+        return result.success
     }
 
     override fun deleteRefreshRateSetting(key: String?): Boolean {
         val safeKey = key?.takeIf(::isAllowedRefreshRateKey) ?: return false
-        val result = executeDirectCommand("/system/bin/settings", "delete", "system", safeKey)
-        return result.success && readRefreshRateSetting(safeKey).isEmpty()
+        val result = executeSettingsCommand("delete", "system", safeKey)
+        return result.success
     }
 
     override fun readSamsungRefreshRateMode(): Int {
@@ -95,8 +131,7 @@ class InputMonitorUserService : IInputMonitorService.Stub() {
     }
 
     private fun readSamsungRefreshRateModeOrNull(): Int? {
-        val result = executeDirectCommand(
-            "/system/bin/settings",
+        val result = executeSettingsCommand(
             "get",
             "secure",
             KEY_SAMSUNG_REFRESH_RATE_MODE
@@ -113,8 +148,7 @@ class InputMonitorUserService : IInputMonitorService.Stub() {
 
     private fun writeSamsungRefreshRateModeDirect(value: Int): Boolean {
         if (value !in SAMSUNG_REFRESH_RATE_MODES) return false
-        val result = executeDirectCommand(
-            "/system/bin/settings",
+        val result = executeSettingsCommand(
             "put",
             "secure",
             KEY_SAMSUNG_REFRESH_RATE_MODE,
@@ -191,7 +225,7 @@ class InputMonitorUserService : IInputMonitorService.Stub() {
         key: String
     ): HyperOsRefreshRateSettingLease.SettingState? {
         if (!isAllowedHyperOsRefreshRateKey(key)) return null
-        val result = executeDirectCommand("/system/bin/settings", "get", "secure", key)
+        val result = executeSettingsCommand("get", "secure", key)
         if (!result.success) return null
         val raw = result.output.trim().takeUnless { it == "null" }
         if (raw != null && raw.toIntOrNull()?.takeIf { it > 0 } == null) return null
@@ -201,13 +235,12 @@ class InputMonitorUserService : IInputMonitorService.Stub() {
     private fun writeHyperOsRefreshRateSetting(key: String, value: String?): Boolean {
         if (!isAllowedHyperOsRefreshRateKey(key)) return false
         val result = if (value == null) {
-            executeDirectCommand("/system/bin/settings", "delete", "secure", key)
+            executeSettingsCommand("delete", "secure", key)
         } else {
             val safeValue = value.toIntOrNull()
                 ?.takeIf { it in MIN_PHYSICAL_REFRESH_RATE..MAX_PHYSICAL_REFRESH_RATE }
                 ?: return false
-            executeDirectCommand(
-                "/system/bin/settings",
+            executeSettingsCommand(
                 "put",
                 "secure",
                 key,
@@ -400,6 +433,19 @@ class InputMonitorUserService : IInputMonitorService.Stub() {
         val success: Boolean,
         val output: String
     )
+
+    /**
+     * Runs a settings subcommand through the native `cmd` launcher when available.
+     *
+     * `cmd settings` reaches SettingsProvider without starting a JVM, which is
+     * substantially faster than the legacy `/system/bin/settings` app_process wrapper.
+     * The legacy wrapper remains as a fallback for older builds.
+     */
+    private fun executeSettingsCommand(vararg arguments: String): DirectCommandResult {
+        val fastResult = executeDirectCommand("/system/bin/cmd", "settings", *arguments)
+        if (fastResult.success) return fastResult
+        return executeDirectCommand("/system/bin/settings", *arguments)
+    }
 
     private fun executeDirectCommand(vararg command: String): DirectCommandResult {
         var process: Process? = null

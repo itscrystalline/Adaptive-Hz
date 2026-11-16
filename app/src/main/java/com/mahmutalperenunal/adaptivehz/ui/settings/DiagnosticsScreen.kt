@@ -49,6 +49,7 @@ import com.mahmutalperenunal.adaptivehz.BuildConfig
 import com.mahmutalperenunal.adaptivehz.core.prefs.AdaptiveHzPrefs
 import com.mahmutalperenunal.adaptivehz.core.engine.AdaptiveHzRuntimeState
 import com.mahmutalperenunal.adaptivehz.core.engine.model.DeviceVendorDetector
+import com.mahmutalperenunal.adaptivehz.core.engine.model.RomSkinDetector
 import com.mahmutalperenunal.adaptivehz.core.system.RefreshRateController
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -76,6 +77,7 @@ fun DiagnosticsScreen(
     val status by produceState(
         initialValue = RefreshRateController.Status(
             vendor = DeviceVendorDetector.detect(),
+            skin = RomSkinDetector.detect(),
             selectedWritePath = "-",
             selectedValue = "-",
             displayHz = 0f,
@@ -268,6 +270,7 @@ fun DiagnosticsScreen(
                     }
 
                     DebugRow(stringResource(id = R.string.diagnostics_vendor), status.vendor.toString())
+                    DebugRow(stringResource(id = R.string.diagnostics_skin), status.skin.displayName)
                     DebugRow(
                         stringResource(id = R.string.diagnostics_current_display),
                         stringResource(id = R.string.refresh_rate_hz, status.displayHz.toInt())
@@ -442,6 +445,12 @@ private fun buildDiagnosticsReport(
             )
         )
         appendLine(appContext.getString(R.string.diagnostics_report_vendor, status.vendor.toString()))
+        appendLine(
+            appContext.getString(
+                R.string.diagnostics_report_skin,
+                status.skin.displayName
+            )
+        )
         appendLine(
             appContext.getString(
                 R.string.diagnostics_report_current_display,

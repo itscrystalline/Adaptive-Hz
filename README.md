@@ -16,7 +16,7 @@
 > Bring true adaptive refresh rate to devices that don’t support it — intelligently, automatically, and without root.
 
 > [!IMPORTANT]
-> **Custom refresh-rate support is currently in testing.** Compatible Samsung One UI devices use a device-tested, session-scoped implementation, while HyperOS 3 uses guarded physical-mode verification and is awaiting its first full device acceptance run. Existing vendor modes remain unchanged when custom values are unavailable or rejected.
+> **Custom refresh-rate support is currently in testing.** Compatible Samsung One UI devices use a device-tested, session-scoped implementation, HyperOS 3 uses guarded physical-mode verification, and AOSP-based skins use platform min/peak limits through Shizuku. Existing vendor modes remain unchanged when custom values are unavailable or rejected.
 
 <p align="center">
   <a href="https://github.com/mahmutaunal/Adaptive-Hz/releases">
@@ -259,11 +259,12 @@ This requires Android's **Usage Access** permission and is optional. If Usage Ac
 
 Custom values are an optional extension of the existing vendor modes. They are shown only when the display reports more than one physical refresh-rate mode.
 
-- **Adaptive** has one custom target. The normal vendor low state remains unchanged; interaction raises the display to the selected target.
+- **Adaptive** has one custom target. The normal vendor low state remains unchanged; interaction raises the display to the selected target. The target can be set globally and overridden per app, so an app can use an intermediate rate such as 90 Hz on touch while the device idles at 60 Hz.
 - **Minimum** and **Maximum** each have one independent custom value.
-- Per-app custom values are available only for the **Minimum** and **Maximum** profiles. A per-app custom Adaptive profile is intentionally not supported.
+- Per-app custom values are available for the **Default**, **Minimum**, and **Maximum** profiles. A per-app touch target applies while the app is in the Default profile.
 - On Samsung/One UI, custom values use the verified DisplayManager min/max token API.
 - On HyperOS 3, Adaptive Hz safely probes the two known secure-setting routes and accepts one only after `Display.mode` physically reaches the requested Hz. The verified route is cached per firmware and display identity.
+- On AOSP-based skins, a fixed value is produced by writing matching `peak_refresh_rate` and `min_refresh_rate` limits through the shell-uid Shizuku service. Peak is written first so the framework never clamps the request.
 - Root is not used to create a new custom override. This avoids persistent `min_refresh_rate` or `peak_refresh_rate` values surviving force-stop or uninstall.
 - If a safe transport, physical verification, or Shizuku is unavailable, Adaptive Hz restores the original state and falls back to the device's existing vendor mode.
 - Turning Adaptive Hz off keeps the custom-rate card visible in a passive state so the feature remains understandable without enabling any control.
@@ -309,6 +310,30 @@ and caches a route only when the active physical display mode reaches the reques
 settings read-back by itself is not considered success. HyperOS 1, HyperOS 2, and the existing normal
 Xiaomi modes remain on their previous strategy.
 
+### AOSP-based skins (Nothing OS, LineageOS, AOSP/GSI)
+
+AOSP-derived skins ignore One UI's `refresh_rate_mode` and control the display through the platform
+limits in `Settings.System`:
+
+```
+peak_refresh_rate
+min_refresh_rate
+```
+
+A fixed rate therefore needs both keys. Adaptive Hz writes the bound that expands the range first —
+minimum then peak when lowering, peak then minimum when raising — so the framework cannot clamp the
+transition. Persistent **Minimum** and **Maximum** use the same fixed limits, and turning the engine
+off deletes both keys so the ROM's own refresh policy takes over again.
+
+ROM markers are checked before manufacturer fields. A Samsung or Xiaomi device running LineageOS is
+routed to the AOSP mechanism instead of the stock One UI or HyperOS strategy; Nothing OS, LineageOS,
+plain AOSP/GSI, and unrecognized AOSP-derived hardware all use the same path.
+
+Android 12+ rejects third-party mutations of these non-public system keys even with
+`WRITE_SECURE_SETTINGS`; only system, shell, and root may change them. Adaptive Hz therefore performs
+AOSP writes through its Shizuku user service, which runs as shell, with root and a direct write as
+fallbacks. Refresh-rate control on AOSP-based skins needs Shizuku or root.
+
 ---
 
 ## Detection Strategy
@@ -335,7 +360,7 @@ This prevents infinite refresh loops and unnecessary maximum-Hz usage.
 |------------|----------|---------|
 | WRITE_SECURE_SETTINGS | Yes | Modify refresh rate system setting |
 | Accessibility Service | Yes | Detect global interaction |
-| Shizuku Permission | Optional (recommended) | Enables low-level real touch detection and owns guarded custom-rate sessions on compatible One UI and HyperOS 3 firmware |
+| Shizuku Permission | Optional (required on AOSP-based skins) | Enables low-level real touch detection and owns guarded custom-rate sessions on compatible One UI and HyperOS 3 firmware. Android 12+ rejects third-party writes to `min_refresh_rate` / `peak_refresh_rate`, so AOSP-based skins need the shell-uid Shizuku transport (or root) |
 | PACKAGE_USAGE_STATS / Usage Access | Optional | Show recently used apps on the dashboard |
 | QUERY_ALL_PACKAGES | Optional | List installed apps for per-app profiles |
 | Foreground Service | Optional | Stability Mode |
@@ -401,7 +426,7 @@ This allows the engine to:
 - Mode and profile screens explain the benefit before continuing, and always allow the user to continue without Shizuku
 - Accessibility remains the fallback interaction system
 - Input monitoring is used to verify real touch behavior
-- The privileged user service owns session-scoped Samsung display tokens and guarded HyperOS 3 setting leases; its generic min/peak write allowlist is retained only to restore legacy snapshots
+- The privileged user service owns session-scoped Samsung display tokens, guarded HyperOS 3 setting leases, and the shell-uid min/peak transport used by AOSP-based skins. Its generic min/peak write allowlist is retained for legacy snapshot restore. Each new privileged service kills stale `:input_monitor` watchers left by earlier sessions.
 - No continuous polling loops are used
 
 ### Privacy
@@ -569,10 +594,11 @@ Adaptive-Hz/
 │   │   │   │   │   ├── model/
 │   │   │   │   │   │   ├── DeviceVendor.kt
 │   │   │   │   │   │   ├── EngineModels.kt
+│   │   │   │   │   │   ├── RomSkin.kt
 │   │   │   │   │   │   ├── VendorStrategy.kt
 │   │   │   │   │   │   └── VendorTuning.kt
 │   │   │   │   │   ├── strategy/
-│   │   │   │   │   │   ├── OtherStrategy.kt
+│   │   │   │   │   │   ├── AospStrategy.kt
 │   │   │   │   │   │   ├── SamsungStrategy.kt
 │   │   │   │   │   │   ├── VendorStrategyProvider.kt
 │   │   │   │   │   │   └── XiaomiStrategy.kt

@@ -9,6 +9,8 @@ import android.util.Log
 import android.view.Display
 import com.mahmutalperenunal.adaptivehz.core.engine.model.DeviceVendor
 import com.mahmutalperenunal.adaptivehz.core.engine.model.DeviceVendorDetector
+import com.mahmutalperenunal.adaptivehz.core.engine.model.RomSkin
+import com.mahmutalperenunal.adaptivehz.core.engine.model.RomSkinDetector
 import com.mahmutalperenunal.adaptivehz.core.prefs.AdaptiveHzPrefs
 import com.mahmutalperenunal.adaptivehz.core.shizuku.ShizukuRefreshRateBridge
 import kotlin.math.abs
@@ -83,8 +85,8 @@ object CustomRefreshRateController {
             "Capabilities live=${observation.liveRates}, cached=$cachedRates, selected=$rates"
         )
 
-        val vendor = DeviceVendorDetector.detect()
-        val hyperOsMajor = if (vendor == DeviceVendor.XIAOMI) {
+        val skin = RomSkinDetector.detect()
+        val hyperOsMajor = if (skin == RomSkin.HYPER_OS) {
             RefreshRateController.detectHyperOsVersion().majorVersion
         } else {
             null
@@ -92,7 +94,7 @@ object CustomRefreshRateController {
         return RefreshRateCapabilities(
             supportedRates = rates,
             customRateSelectionSupported = isCustomSelectionSupported(
-                vendor = vendor,
+                skin = skin,
                 hyperOsMajor = hyperOsMajor,
                 supportedRateCount = rates.size
             )
@@ -154,13 +156,14 @@ object CustomRefreshRateController {
     }
 
     internal fun isCustomSelectionSupported(
-        vendor: DeviceVendor,
+        skin: RomSkin,
         hyperOsMajor: Int?,
         supportedRateCount: Int
     ): Boolean {
         if (supportedRateCount <= 1) return false
-        return vendor == DeviceVendor.SAMSUNG ||
-            (vendor == DeviceVendor.XIAOMI && hyperOsMajor == 3)
+        return skin == RomSkin.ONE_UI ||
+            (skin == RomSkin.HYPER_OS && hyperOsMajor == 3) ||
+            skin.usesAospRefreshRateMechanism
     }
 
     @Synchronized
@@ -179,14 +182,58 @@ object CustomRefreshRateController {
             return CustomRefreshRateResult.Failed(rollbackSucceeded = false)
         }
 
-        return when (DeviceVendorDetector.detect()) {
-            DeviceVendor.SAMSUNG -> applySamsungFixedRate(refreshRateHz)
-            DeviceVendor.XIAOMI -> applyHyperOsFixedRate(
+        return when (RomSkinDetector.detect()) {
+            RomSkin.ONE_UI -> applySamsungFixedRate(refreshRateHz)
+            RomSkin.HYPER_OS -> applyHyperOsFixedRate(
                 context = appContext,
                 refreshRateHz = refreshRateHz,
                 supportedRates = capabilities.supportedRates
             )
-            DeviceVendor.OTHER -> CustomRefreshRateResult.Unsupported
+            RomSkin.NOTHING_OS,
+            RomSkin.LINEAGE_OS,
+            RomSkin.AOSP -> applyAospFixedRate(
+                context = appContext,
+                refreshRateHz = refreshRateHz
+            )
+        }
+    }
+
+    /**
+     * Pins an AOSP-based skin to one intermediate rate through the platform limits.
+     *
+     * Peak is raised first and the minimum follows, so the framework cannot clamp the
+     * request while the two keys are being replaced.
+     */
+    private fun applyAospFixedRate(
+        context: Context,
+        refreshRateHz: Int
+    ): CustomRefreshRateResult {
+        val peakWritten = write(
+            context,
+            RefreshRateController.KEY_PEAK_REFRESH_RATE,
+            refreshRateHz.toString()
+        )
+        val minWritten = write(
+            context,
+            RefreshRateController.KEY_MIN_REFRESH_RATE,
+            refreshRateHz.toString()
+        )
+
+        if (!peakWritten || !minWritten) {
+            val peakCleared = write(context, RefreshRateController.KEY_PEAK_REFRESH_RATE, null)
+            val minCleared = write(context, RefreshRateController.KEY_MIN_REFRESH_RATE, null)
+            return CustomRefreshRateResult.Failed(
+                rollbackSucceeded = peakCleared && minCleared
+            )
+        }
+
+        val state = readCurrentState(context)
+        val applied = equivalent(state.peakValue, refreshRateHz.toString()) &&
+            equivalent(state.minValue, refreshRateHz.toString())
+        return if (applied) {
+            CustomRefreshRateResult.Applied
+        } else {
+            CustomRefreshRateResult.Failed(rollbackSucceeded = true)
         }
     }
 

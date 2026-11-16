@@ -17,45 +17,53 @@ import com.mahmutalperenunal.adaptivehz.core.system.RefreshRateController
  */
 class SamsungStrategy : VendorStrategy {
 
-    override val name: String = "Samsung"
+    override val name: String = "Samsung One UI"
 
     // Returns the configuration that favors the lowest available refresh rate.
-    override fun desiredLow(context: Context): SettingWrite {
-        return SettingWrite(
-            namespace = SettingsNamespace.SECURE,
-            key = RefreshRateController.KEY_REFRESH_MODE,
-            intValue = 0,
-            label = "secure/refresh_rate_mode=0 (Minimum)"
+    override fun desiredLow(context: Context): List<SettingWrite> {
+        return listOf(
+            SettingWrite(
+                namespace = SettingsNamespace.SECURE,
+                key = RefreshRateController.KEY_REFRESH_MODE,
+                intValue = 0,
+                label = "secure/refresh_rate_mode=0 (Minimum)"
+            )
         )
     }
 
     // Returns the configuration that enables Samsung's adaptive high refresh-rate mode.
-    override fun desiredHigh(context: Context): SettingWrite {
-        return SettingWrite(
-            namespace = SettingsNamespace.SECURE,
-            key = RefreshRateController.KEY_REFRESH_MODE,
-            intValue = 2,
-            label = "secure/refresh_rate_mode=2 (Adaptive High)"
+    override fun desiredHigh(context: Context): List<SettingWrite> {
+        return listOf(
+            SettingWrite(
+                namespace = SettingsNamespace.SECURE,
+                key = RefreshRateController.KEY_REFRESH_MODE,
+                intValue = 2,
+                label = "secure/refresh_rate_mode=2 (Adaptive High)"
+            )
         )
     }
 
     // Returns the configuration that keeps the display at the highest supported refresh rate.
-    override fun desiredForceMaximum(context: Context): SettingWrite {
-        return SettingWrite(
-            namespace = SettingsNamespace.SECURE,
-            key = RefreshRateController.KEY_REFRESH_MODE,
-            intValue = 2,
-            label = "secure/refresh_rate_mode=2 (Force Maximum)"
+    override fun desiredForceMaximum(context: Context): List<SettingWrite> {
+        return listOf(
+            SettingWrite(
+                namespace = SettingsNamespace.SECURE,
+                key = RefreshRateController.KEY_REFRESH_MODE,
+                intValue = 2,
+                label = "secure/refresh_rate_mode=2 (Force Maximum)"
+            )
         )
     }
 
     // Returns the configuration that lets the system manage the refresh rate automatically.
-    override fun desiredSystemControlled(context: Context): SettingWrite {
-        return SettingWrite(
-            namespace = SettingsNamespace.SECURE,
-            key = RefreshRateController.KEY_REFRESH_MODE,
-            intValue = 1,
-            label = "secure/refresh_rate_mode=1 (System/Adaptive)"
+    override fun desiredSystemControlled(context: Context): List<SettingWrite> {
+        return listOf(
+            SettingWrite(
+                namespace = SettingsNamespace.SECURE,
+                key = RefreshRateController.KEY_REFRESH_MODE,
+                intValue = 1,
+                label = "secure/refresh_rate_mode=1 (System/Adaptive)"
+            )
         )
     }
 

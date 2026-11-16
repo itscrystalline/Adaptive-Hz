@@ -158,18 +158,26 @@ class AdaptiveHzEngine(
         }
     }
 
-    private fun applyWrite(
-        write: SettingWrite,
+    private fun applyWrites(
+        writes: List<SettingWrite>,
         policy: RefreshRateController.RefreshWritePolicy =
             RefreshRateController.RefreshWritePolicy.NORMAL,
-        genericRefreshRateHz: Int = write.intValue
+        genericRefreshRateHz: Int = writes.lastOrNull()?.intValue ?: 0
     ): RefreshRateApplyResult {
-        return RefreshRateController.applySetting(
+        return RefreshRateController.applySettings(
             context = appContext,
-            write = write,
+            writes = writes,
             policy = policy,
             genericRefreshRateHz = genericRefreshRateHz
         )
+    }
+
+    private fun writeLabel(writes: List<SettingWrite>): String {
+        return writes.joinToString(" + ") { it.label }
+    }
+
+    private fun transitionLabel(customRate: Int?, writes: List<SettingWrite>): String {
+        return customRate?.let { "custom ${it}Hz" } ?: writeLabel(writes)
     }
 
     /**
@@ -403,9 +411,9 @@ class AdaptiveHzEngine(
             return
         }
 
-        val w = strategy.desiredSystemControlled(appContext)
+        val writes = strategy.desiredSystemControlled(appContext)
 
-        if (w == null) {
+        if (writes.isEmpty()) {
             isHigh = false
             AdaptiveHzPrefs.updateDebugLastWrite(
                 context = appContext,
@@ -417,12 +425,12 @@ class AdaptiveHzEngine(
             return
         }
 
-        val result = applyWrite(w)
+        val result = applyWrites(writes)
         val ok = result.isOperationalSuccess
 
         AdaptiveHzPrefs.updateDebugLastWrite(
             context = appContext,
-            label = "SYSTEM ${w.label} / ${result::class.simpleName}",
+            label = "SYSTEM ${writeLabel(writes)} / ${result::class.simpleName}",
             success = ok
         )
 
@@ -431,9 +439,9 @@ class AdaptiveHzEngine(
             lastHighUptimeMs = 0L
             isTouchInteracting = false
             appliedStateTracker.markApplied(target)
-            Log.d(tag, "SYSTEM_CONTROLLED (${w.label}) success")
+            Log.d(tag, "SYSTEM_CONTROLLED (${writeLabel(writes)}) success")
         } else {
-            Log.w(tag, "SYSTEM_CONTROLLED (${w.label}) failed")
+            Log.w(tag, "SYSTEM_CONTROLLED (${writeLabel(writes)}) failed")
         }
     }
 
@@ -556,14 +564,14 @@ class AdaptiveHzEngine(
             return
         }
 
-        val w = strategy.desiredHigh(appContext)
+        val writes = strategy.desiredHigh(appContext)
         val customRate = resolveCustomHighRate(activePackageName)
         val target = appliedState(RefreshTarget.ADAPTIVE_HIGH, customRate)
-        val ok = applyCustomOrLegacy(target, customRate) { writeHighRefreshSetting(w) }
+        val ok = applyCustomOrLegacy(target, customRate) { writeHighRefreshSetting(writes) }
 
         AdaptiveHzPrefs.updateDebugLastWrite(
             context = appContext,
-            label = customRate?.let { "HIGH custom ${it}Hz" } ?: "HIGH ${w.label}",
+            label = customRate?.let { "HIGH custom ${it}Hz" } ?: "HIGH ${writeLabel(writes)}",
             success = ok
         )
 
@@ -571,10 +579,10 @@ class AdaptiveHzEngine(
             isHigh = true
             lastHighUptimeMs = SystemClock.uptimeMillis()
             appliedStateTracker.markApplied(target)
-            Log.d(tag, "HIGH (${w.label}) success")
+            Log.d(tag, "HIGH (${transitionLabel(customRate, writes)}) success")
             scheduleSafety()
         } else {
-            Log.w(tag, "HIGH (${w.label}) failed")
+            Log.w(tag, "HIGH (${transitionLabel(customRate, writes)}) failed")
         }
 
         scheduleDrop(getInteractionDropDelayMs())
@@ -588,15 +596,15 @@ class AdaptiveHzEngine(
      * user_refresh_rate=0 while adaptive LOW continues to use the physical Hz.
      */
     private fun applyForceMinimum(force: Boolean) {
-        val w = strategy.desiredForceMinimum(appContext)
+        val writes = strategy.desiredForceMinimum(appContext)
         val customRate = resolveCustomMinimumRate(activePackageName)
         val target = appliedState(RefreshTarget.FORCE_MINIMUM, customRate)
         if (!appliedStateTracker.shouldApply(target, force)) return
-        val ok = applyCustomOrLegacy(target, customRate) { writeLowRefreshSetting(w) }
+        val ok = applyCustomOrLegacy(target, customRate) { writeLowRefreshSetting(writes) }
 
         AdaptiveHzPrefs.updateDebugLastWrite(
             context = appContext,
-            label = customRate?.let { "FORCE_MIN custom ${it}Hz" } ?: "FORCE_MIN ${w.label}",
+            label = customRate?.let { "FORCE_MIN custom ${it}Hz" } ?: "FORCE_MIN ${writeLabel(writes)}",
             success = ok
         )
 
@@ -605,9 +613,9 @@ class AdaptiveHzEngine(
             appliedStateTracker.markApplied(target)
             handler.removeCallbacks(dropRunnable)
             handler.removeCallbacks(safetyRunnable)
-            Log.d(tag, "FORCE_MIN (${w.label}) success")
+            Log.d(tag, "FORCE_MIN (${transitionLabel(customRate, writes)}) success")
         } else {
-            Log.w(tag, "FORCE_MIN (${w.label}) failed")
+            Log.w(tag, "FORCE_MIN (${transitionLabel(customRate, writes)}) failed")
         }
     }
 
@@ -628,15 +636,15 @@ class AdaptiveHzEngine(
             return
         }
 
-        val w = strategy.desiredForceMaximum(appContext)
+        val writes = strategy.desiredForceMaximum(appContext)
         val customRate = resolveCustomMaximumRate(activePackageName)
         val target = appliedState(RefreshTarget.FORCE_MAXIMUM, customRate)
         if (!appliedStateTracker.shouldApply(target, force)) return
-        val ok = applyCustomOrLegacy(target, customRate) { writeHighRefreshSetting(w) }
+        val ok = applyCustomOrLegacy(target, customRate) { writeHighRefreshSetting(writes) }
 
         AdaptiveHzPrefs.updateDebugLastWrite(
             context = appContext,
-            label = customRate?.let { "FORCE_MAX custom ${it}Hz" } ?: "FORCE_MAX ${w.label}",
+            label = customRate?.let { "FORCE_MAX custom ${it}Hz" } ?: "FORCE_MAX ${writeLabel(writes)}",
             success = ok
         )
 
@@ -649,9 +657,9 @@ class AdaptiveHzEngine(
             handler.removeCallbacks(dropRunnable)
             handler.removeCallbacks(safetyRunnable)
 
-            Log.d(tag, "FORCE_MAX (${w.label}) success")
+            Log.d(tag, "FORCE_MAX (${transitionLabel(customRate, writes)}) success")
         } else {
-            Log.w(tag, "FORCE_MAX (${w.label}) failed")
+            Log.w(tag, "FORCE_MAX (${transitionLabel(customRate, writes)}) failed")
         }
     }
 
@@ -665,29 +673,29 @@ class AdaptiveHzEngine(
      * Applies LOW and updates debug write state.
      */
     private fun applyLow(force: Boolean) {
-        val w = strategy.desiredLow(appContext)
+        val writes = strategy.desiredLow(appContext)
         val customRate = resolveCustomLowRate(activePackageName)
         val target = appliedState(RefreshTarget.ADAPTIVE_LOW, customRate)
         if (!appliedStateTracker.shouldApply(target, force)) return
-        val ok = applyCustomOrLegacy(target, customRate) { writeLowRefreshSetting(w) }
+        val ok = applyCustomOrLegacy(target, customRate) { writeLowRefreshSetting(writes) }
 
         AdaptiveHzPrefs.updateDebugLastWrite(
             context = appContext,
-            label = customRate?.let { "LOW custom ${it}Hz" } ?: "LOW ${w.label}",
+            label = customRate?.let { "LOW custom ${it}Hz" } ?: "LOW ${writeLabel(writes)}",
             success = ok
         )
 
         if (ok) {
             isHigh = false
             appliedStateTracker.markApplied(target)
-            Log.d(tag, "LOW (${w.label}) success")
+            Log.d(tag, "LOW (${transitionLabel(customRate, writes)}) success")
         } else {
-            Log.w(tag, "LOW (${w.label}) failed")
+            Log.w(tag, "LOW (${transitionLabel(customRate, writes)}) failed")
         }
     }
 
     private fun writeHighRefreshSetting(
-        write: SettingWrite
+        writes: List<SettingWrite>
     ): Boolean {
         if (!CustomRefreshRateController.restoreOriginal(appContext)) return false
         val policy = if (shouldUseBatterySaverOverrideWrites()) {
@@ -698,22 +706,22 @@ class AdaptiveHzEngine(
 
         val (_, maxHz) = RefreshRateController.resolveDisplayMinMax(appContext)
 
-        val result = applyWrite(
-            write = write,
+        val result = applyWrites(
+            writes = writes,
             policy = policy,
             genericRefreshRateHz = maxHz
         )
 
         Log.d(
             tag,
-            "High write result=${result::class.simpleName} write=${write.label}"
+            "High write result=${result::class.simpleName} write=${writeLabel(writes)}"
         )
 
         return result.isOperationalSuccess
     }
 
     private fun writeLowRefreshSetting(
-        write: SettingWrite
+        writes: List<SettingWrite>
     ): Boolean {
         if (!CustomRefreshRateController.restoreOriginal(appContext)) return false
         val policy = if (shouldUseBatterySaverOverrideWrites()) {
@@ -722,15 +730,15 @@ class AdaptiveHzEngine(
             RefreshRateController.RefreshWritePolicy.NORMAL
         }
 
-        val result = applyWrite(
-            write = write,
+        val result = applyWrites(
+            writes = writes,
             policy = policy,
-            genericRefreshRateHz = write.intValue
+            genericRefreshRateHz = writes.lastOrNull()?.intValue ?: 0
         )
 
         Log.d(
             tag,
-            "Low write result=${result::class.simpleName} write=${write.label}"
+            "Low write result=${result::class.simpleName} write=${writeLabel(writes)}"
         )
 
         return result.isOperationalSuccess
@@ -796,7 +804,8 @@ class AdaptiveHzEngine(
             globalMaximum = AdaptiveHzPrefs.getGlobalCustomMaximumRate(appContext),
             globalAdaptiveTarget = AdaptiveHzPrefs.getGlobalAdaptiveTargetRate(appContext),
             appMinimum = AdaptiveHzPrefs.getAppCustomMinimumRate(appContext, packageName),
-            appMaximum = AdaptiveHzPrefs.getAppCustomMaximumRate(appContext, packageName)
+            appMaximum = AdaptiveHzPrefs.getAppCustomMaximumRate(appContext, packageName),
+            appAdaptiveTarget = AdaptiveHzPrefs.getAppAdaptiveTargetRate(appContext, packageName)
         )
     }
 

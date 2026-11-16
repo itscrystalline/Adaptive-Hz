@@ -171,18 +171,12 @@
 
     <!-- Settings - items -->
     <string name="settings_item_stability_mode">Modo de estabilidade</string>
-    <string name="settings_item_automatic_update_checks">Verificações automáticas</string>
-    <string name="settings_value_automatic_update_checks_summary">Verifica versões estáveis no GitHub no máximo uma vez a cada 24 horas. Versões beta e de pré-lançamento são ignoradas.</string>
     <string name="settings_item_check_for_updates">Verificar atualizações</string>
     <string name="settings_value_stable_updates_summary">Verifique manualmente a versão estável mais recente no GitHub.</string>
     <string name="update_checking">Verificando o GitHub…</string>
     <string name="update_up_to_date">Você está usando a versão estável mais recente.</string>
     <string name="update_check_failed">Não foi possível verificar atualizações. Confira sua conexão e tente novamente.</string>
     <string name="update_invalid_release">A versão mais recente não tem um número de versão válido.</string>
-    <string name="update_consent_title">Quer manter o app atualizado?</string>
-    <string name="update_consent_body">O Adaptive Hz pode verificar novas versões estáveis no GitHub no máximo uma vez a cada 24 horas. Versões beta e de pré-lançamento são ignoradas. Nenhuma atualização é baixada ou instalada automaticamente.</string>
-    <string name="update_consent_enable">Ativar verificações</string>
-    <string name="update_consent_not_now">Agora não</string>
     <string name="update_available_title">Atualização disponível</string>
     <string name="update_available_body">%1$s está disponível. Confira a versão no GitHub antes de baixar.</string>
     <string name="update_view_release">Ver versão</string>
