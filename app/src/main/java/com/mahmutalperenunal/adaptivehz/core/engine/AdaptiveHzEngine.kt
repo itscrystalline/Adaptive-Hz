@@ -43,6 +43,7 @@ class AdaptiveHzEngine(
     private val shouldIgnorePackage: (String?) -> Boolean,
     private val getAppProfileMode: (String?) -> AppRefreshProfileMode = { AppRefreshProfileMode.DEFAULT },
     private val interactionSignalProvider: InteractionSignalProvider? = null,
+    private val resolveForegroundPackage: (() -> String?)? = null,
     private val getInteractionDropDelayMs: () -> Long = {
         AdaptiveHzPrefs.getInteractionDropDelayMs(context.applicationContext)
     },
@@ -62,6 +63,13 @@ class AdaptiveHzEngine(
     private var lastHighUptimeMs: Long = 0L
     private var isTouchInteracting: Boolean = false
     private var activePackageName: String? = null
+    private var lastRejectedPackageName: String? = null
+
+    private val ignoredEventTypes = setOf(
+        AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED,
+        AccessibilityEvent.TYPE_ANNOUNCEMENT,
+        AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUS_CLEARED
+    )
 
     // Single idle timer: every boost resets it; when it fires we drop to LOW.
     private val dropRunnable = Runnable {
@@ -231,6 +239,27 @@ class AdaptiveHzEngine(
 
         val pkg = event.packageName
 
+        // Notification/announcement events are emitted by background apps and would
+        // otherwise replace the active package before their event type is ignored.
+        if (event.eventType in ignoredEventTypes) return
+        if (shouldIgnorePackage(pkg)) return
+
+        // Accessibility events are global. Only the foreground activity may change the
+        // active profile; overlay and IME packages must not displace the underlying app.
+        val foregroundPackage = resolveForegroundPackage?.invoke()
+        if (foregroundPackage != null && pkg != foregroundPackage) {
+            if (pkg != lastRejectedPackageName) {
+                Log.d(
+                    tag,
+                    "Ignoring non-foreground event pkg=$pkg foreground=$foregroundPackage"
+                )
+                lastRejectedPackageName = pkg
+                AdaptiveHzPrefs.updateDebugForegroundPackage(appContext, foregroundPackage)
+            }
+            return
+        }
+        lastRejectedPackageName = null
+
         DebugEventStore.add(
             DebugAccessibilityEvent(
                 timestamp = System.currentTimeMillis(),
@@ -249,7 +278,6 @@ class AdaptiveHzEngine(
             packageName = pkg
         )
 
-        if (shouldIgnorePackage(pkg)) return
         if (!canProcessForegroundInteraction(pkg)) return
         val packageChanged = activePackageName != pkg
         activePackageName = pkg
@@ -302,12 +330,6 @@ class AdaptiveHzEngine(
                 onWindowStateChanged(event)
             }
 
-            AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED,
-            AccessibilityEvent.TYPE_ANNOUNCEMENT,
-            AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUS_CLEARED -> {
-                // Explicitly ignore known noisy events.
-            }
-
             else -> Unit
         }
     }
@@ -337,6 +359,13 @@ class AdaptiveHzEngine(
                 scheduleDrop(getInteractionDropDelayMs())
             }
             return
+        }
+
+        // Raw touch comes from the input device, so bind it to the current foreground
+        // activity instead of whatever package emitted the last accessibility event.
+        val foreground = resolveForegroundPackage?.invoke()
+        if (!foreground.isNullOrBlank() && foreground != activePackageName) {
+            activePackageName = foreground
         }
 
         if (!canProcessForegroundInteraction(activePackageName)) return

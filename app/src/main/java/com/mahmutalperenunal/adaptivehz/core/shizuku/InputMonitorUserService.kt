@@ -2,6 +2,8 @@ package com.mahmutalperenunal.adaptivehz.core.shizuku
 
 import android.os.IBinder
 import android.os.RemoteException
+import android.system.Os
+import android.system.OsConstants
 import android.util.Log
 import com.mahmutalperenunal.adaptivehz.BuildConfig
 import java.io.BufferedReader
@@ -60,6 +62,11 @@ class InputMonitorUserService : IInputMonitorService.Stub() {
     private fun killStaleWatchers() {
         Thread({
             val selfPid = android.os.Process.myPid()
+            val selfStartTicks = processStartTicks(selfPid) ?: return@Thread
+            val ticksPerSecond = runCatching {
+                Os.sysconf(OsConstants._SC_CLK_TCK)
+            }.getOrDefault(100L)
+            val staleAfterTicks = ticksPerSecond * STALE_WATCHER_AGE_SECONDS
             val watcherPrefix = "${BuildConfig.APPLICATION_ID}:input_monitor"
 
             File("/proc").listFiles()?.forEach { entry ->
@@ -75,12 +82,26 @@ class InputMonitorUserService : IInputMonitorService.Stub() {
 
                 if (!commandLine.startsWith(watcherPrefix)) return@forEach
 
+                // Never kill a sibling that started around the same time: concurrent
+                // binds can briefly coexist, and killing the bound one breaks writes.
+                val startedTicks = processStartTicks(pid) ?: return@forEach
+                if (selfStartTicks - startedTicks < staleAfterTicks) return@forEach
+
                 runCatching { android.os.Process.killProcess(pid) }
                     .onSuccess { Log.d(TAG, "Killed stale watcher pid=$pid") }
                     .onFailure { Log.w(TAG, "Unable to kill stale watcher pid=$pid", it) }
             }
         }, "stale-watcher-cleanup").start()
     }
+
+    private fun processStartTicks(pid: Int): Long? = runCatching {
+        val stat = File("/proc/$pid/stat").readText()
+        val commandEnd = stat.lastIndexOf(')')
+        if (commandEnd < 0) return@runCatching null
+
+        val fields = stat.substring(commandEnd + 2).split(' ')
+        fields[19].toLong()
+    }.getOrNull()
 
     override fun listInputDevices(): String {
         return executeDirectCommand("/system/bin/getevent", "-lp")
@@ -485,6 +506,7 @@ class InputMonitorUserService : IInputMonitorService.Stub() {
         private const val MOVE_CALLBACK_THROTTLE_MS = 75L
 
         private const val COMMAND_TIMEOUT_MS = 3_000L
+        private const val STALE_WATCHER_AGE_SECONDS = 10L
         private const val MONITOR_THREAD_JOIN_TIMEOUT_MS = 1_000L
         private const val PROCESS_DESTROY_TIMEOUT_MS = 500L
 

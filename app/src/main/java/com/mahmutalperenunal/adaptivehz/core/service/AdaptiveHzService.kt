@@ -9,8 +9,11 @@ import android.content.IntentFilter
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityWindowInfo
+import com.mahmutalperenunal.adaptivehz.core.apps.ForegroundAppResolver
 import com.mahmutalperenunal.adaptivehz.core.engine.AdaptiveHzEngine
 import com.mahmutalperenunal.adaptivehz.core.engine.strategy.VendorStrategyProvider
 import com.mahmutalperenunal.adaptivehz.core.health.AccessibilityHealthMonitor
@@ -33,6 +36,13 @@ class AdaptiveHzService : AccessibilityService() {
     private var started = false
 
     private val heartbeatHandler by lazy { Handler(Looper.getMainLooper()) }
+
+    private val foregroundAppResolver by lazy {
+        ForegroundAppResolver(applicationContext)
+    }
+
+    private var focusedWindowPackage: String? = null
+    private var focusedWindowResolvedAt: Long = 0L
 
     private val shizukuInputManager by lazy {
         ShizukuInputManager(
@@ -116,6 +126,7 @@ class AdaptiveHzService : AccessibilityService() {
                 AdaptiveHzPrefs.getAppRefreshProfileMode(appContext, pkg)
             },
             interactionSignalProvider = shizukuInputManager,
+            resolveForegroundPackage = ::resolveForegroundPackage,
             tag = "AdaptiveHzEngine"
         )
 
@@ -231,8 +242,33 @@ class AdaptiveHzService : AccessibilityService() {
         shizukuInputManager.checkStatus()
     }
 
+    /**
+     * Resolves the foreground activity, preferring UsageStats because it keeps the
+     * underlying activity visible while an overlay or IME window is focused.
+     */
+    private fun resolveForegroundPackage(): String? {
+        foregroundAppResolver.resolve()?.let { return it }
+
+        val now = SystemClock.elapsedRealtime()
+        if (now - focusedWindowResolvedAt < FOCUSED_WINDOW_CACHE_MS) {
+            return focusedWindowPackage
+        }
+
+        focusedWindowPackage = runCatching {
+            val appWindow = windows.firstOrNull {
+                it.isFocused && it.type == AccessibilityWindowInfo.TYPE_APPLICATION
+            } ?: windows.firstOrNull {
+                it.type == AccessibilityWindowInfo.TYPE_APPLICATION
+            }
+            appWindow?.root?.packageName?.toString()
+        }.getOrNull()
+        focusedWindowResolvedAt = now
+        return focusedWindowPackage
+    }
+
     companion object {
         private const val TAG = "AdaptiveHzService"
         private const val HEARTBEAT_INTERVAL_MS = 2_500L
+        private const val FOCUSED_WINDOW_CACHE_MS = 500L
     }
 }

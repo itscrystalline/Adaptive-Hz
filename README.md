@@ -341,6 +341,7 @@ fallbacks. Refresh-rate control on AOSP-based skins needs Shizuku or root.
 To balance responsiveness and stability:
 
 - Immediate boost on real interaction
+- Only events from the foreground activity are accepted; notification publishers, background apps, IME and overlay packages are ignored
 - Event coalescing to reduce repeated Accessibility event bursts
 - Vendor-specific tuning for different OEM event behavior
 - Configurable idle fallback delay to return to the minimum refresh rate after touch interaction ends
